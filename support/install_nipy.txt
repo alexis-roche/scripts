@@ -1,0 +1,71 @@
+1. Install python 
+--> Download and run the windows installer for python 2.6 (do NOT install python 3.0)
+http://www.python.org/download/
+--> Add the following to the windows Path variable (Docs and Settings->System->Advanced->Env variables)
+C:\Python26;C:\Python26\Scripts
+
+2. Install numpy
+--> Download a recent windows installer (version should be >= 1.2) for python 2.6
+http://sourceforge.net/projects/numpy/files/
+
+3. Install scipy
+--> Same thing as for numpy (pick up version >= 0.7)
+http://sourceforge.net/projects/scipy/files/
+
+4. Install matplotlib
+--> Same thing as for numpy and scipy
+http://sourceforge.net/projects/matplotlib/files/
+ 
+5. Install ipython 
+--> Download and run windows installer 
+http://ipython.scipy.org/moin/Download
+--> Run the pyreadline installer
+http://ipython.scipy.org/dist/
+
+6. Install mingw + msys
+--> Download both installers 
+http://sourceforge.net/projects/mingw/files/
+--> Run mingw install first and follow instructions
+
+7. Install setuptools
+--> Download the source tarball and run
+http://pypi.python.org/pypi/setuptools
+python setup.py install
+
+8. Install additional python packages (optional)
+easy_install nose
+easy_install pexpect
+easy_install sympy
+
+9. Install lapack 
+--> Download source tarball: lapack-3.1.1.tgz (lapack >= 3.2 does not build anymore with g77) 
+http://www.netlib.org/lapack/
+--> Unpack: 
+tar xvf LAPACK.tgz.gz
+--> Build 
+cd LAPACK
+cp make.inc.example make.inc
+Optionally, edit make.inc and modify it: PLAT = _LINUX --> PLAT = _WIN32
+make blaslib
+make lapacklib
+--> Copy the resulting libraries to the MinGW/lib directory
+cp blas_WIN32.a LIB/libblas.a
+cp lapack_WIN32.a LIB/liblapack.a
+
+10. Install bazaar
+--> Download windows installer 
+http://bazaar-vcs.org/WindowsDownloads
+
+11. Install nipy
+--> Branch nipy. From msys terminal, do: 
+bzr branch lp:nipy  (To update the branch: 'bzr pull') 
+--> Edit setup.py file to comment line: 
+package_check('nifti')
+--> Create a site.cfg file in the nipy root directory including the following 3 lines:
+[DEFAULT]
+library_dirs = c:\mingw\lib
+include_dirs = c:\mingw\include
+libraries = g2c
+--> Build and install 
+python setup.py install
+

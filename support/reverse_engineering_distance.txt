@@ -1,0 +1,32 @@
+dist_load_groupData.m ::
+--> dist_load_groupData (effImg, varImg, varNF, ...)
+--> effImg and varImg are paths but varNF is a positive-valued vector 
+
+|
+|
+v
+
+dist_group_analysis.m::
+--> dist_group_analysis(varargin)
+--> This function loads group data from a 'groupParam' structure, a field of
+	which is varNF 
+
+|
+|
+v
+
+
+dist_load_groupParam.m::
+--> dist_load_groupParam(pathData, ...)
+--> Calls a subroutine called sf_load_groupParam that takes as input a 'groupImg' 
+	structure, a field of which is varNF
+
+|
+|
+v
+
+dist_load_groupImg.m::
+--> dist_load_groupImg(pathDir, ...)
+--> This routine loads a 'contrast' structure, from which it gets a field called
+	'validContrastsStructure' that both has 'Cmatx' and 'validCovMatx' fields. 
+	It then does: NF = Cmatx' * CovMatx * Cmatx ;

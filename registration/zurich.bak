@@ -1,0 +1,43 @@
+import numpy as np 
+from nipy.io.imageformats import load, save
+from nipy.neurospin.image import from_brifti, to_brifti, transform_image
+from nipy.neurospin.registration import IconicRegistration, Affine, GridTransform
+from os.path import join 
+from glob import glob
+
+from isola import Isola, mat_info
+
+datadir = join('d:\\', 'home', 'Alexis', 'data', 'remy')
+J = from_brifti(load(join(datadir, '3_L_COR_25_axial_RegisteredOnAC_2LSAG.nii')))
+I = from_brifti(load(join(datadir, '2LSAG26_axial-ROI.nii')))
+
+# Create a registration instance
+print('Creating matcher instance')
+R = IconicRegistration(I, J)
+R.set_source_fov(fixed_npoints=64**3)
+R.similarity = 'mi'
+
+# Affine registration
+"""
+T0 = Affine()
+T = R.optimize(T0)
+"""
+
+# Spline-based registration
+defmodes = from_brifti(load(join(datadir, 'deformation_modes.nii')))
+data = defmodes.data.reshape(list(I.shape)+[6,3])
+T = GridTransform(I, data)
+## freeze 
+T._param[0] = 1
+T._free_param_idx = [1,2,3,4,5]
+
+# Register 
+###T = R.optimize(T)
+
+# Create matcher instance
+"""
+outfile = join(datadir, 'toto.nii') 
+Jt = transform_image(J, T, reference=I)
+save(to_brifti(Jt), outfile)
+"""
+
