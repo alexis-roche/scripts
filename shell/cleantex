@@ -1,1 +1,0 @@
-rm -f *.{aux,log,lof,lot,out,dvi,blg,toc,idx}
