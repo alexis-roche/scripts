@@ -59,7 +59,7 @@ unset color_prompt force_color_prompt
 # If this is an xterm set the title to user@host:dir
 case "$TERM" in
 xterm*|rxvt*)
-    PS1="\u~$"
+    PS1="\u~ "
     ;;
 *)
     ;;
@@ -104,10 +104,11 @@ fi
 
 # Serious stuff
 export PATH=$PATH:$HOME/bin
+export PATH=$PATH:$HOME/brainvisa/bin
 export BIBINPUTS=$HOME/svn/bibliography:$BIBINPUTS
 export BIBINPUTS=$BIBINPUTS:$HOME/git/papers/bib:$BIBINPUS
 export BSTINPUTS=$HOME/tex/bstinputs:$BSTINPUTS
 export TEXINPUTS=.:$HOME/tex/texinputs:$TEXINPUTS
 export EDITOR=emacs
 alias clean="rm -f *.pyc *~ .*~ *# .*# #*"
-alias cleantex="rm -f *.{aux,log,lof,lot,out,dvi,blg,toc,idx}"
+alias cleantex="rm -f *.{aux,log,lof,lot,out,dvi,blg,toc,idx,spl}"
