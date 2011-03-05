@@ -17,6 +17,8 @@ def marginal_log_likelihood(K, regul=1e-10):
     return -.5*(data_fit+complexity)
 
 
+
+
 n = 100
 x = 10*np.random.rand(n)
 y = x**2
