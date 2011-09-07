@@ -1,6 +1,27 @@
 import numpy as np 
 from scipy.linalg import cho_factor, cho_solve
 
+def kernel_matrix(xyz, centers, sigma): 
+    """
+    Compute kernel matrix: Kij = g(xi-cj) 
+    """
+    dim = centers.shape[1]
+    D = np.zeros((xyz.shape[0], dim, centers.shape[0]))
+    D -= (centers/sigma).T 
+    Dt = np.transpose(D, (2,1,0))
+    Dt += (xyz/sigma).T 
+    return np.exp(-.5*np.sum(D**2, 1)) 
+
+
+# Correct local affines for overlapping kernels
+def correct_affines(affines, centers, sigma): 
+    K = kernel_matrix(centers, centers, sigma)
+    L = np.linalg.cholesky(K) # K = L L.T
+    Linv = np.linalg.inv(L) 
+    Kinv = np.dot(Linv.T, Linv) 
+    return np.dot(affines[:, 0:3, :].T, Kinv.T).T
+
+
 def covariance_matrix(x, sigma):
     D = np.zeros((len(x), len(x)))
     D[:] = x
