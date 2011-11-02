@@ -11,7 +11,7 @@ SCAN = 1
 
 class TissueClassifier(object):
 
-    def __init__(self, data, mu, sigma):
+    def __init__(self, data, mu, sigma, beta=0):
 
         ntissues = len(mu)
         if hasattr(mu[0], '__iter__'):
@@ -34,8 +34,7 @@ class TissueClassifier(object):
         self.mu = np.asarray(mu).reshape((ntissues, nchannels))
         self.sigma = np.asarray(sigma).reshape((ntissues, nchannels, nchannels))
 
-
-
+        self.beta = float(beta)
 
         # Should check whether input data is consistent with parameter
         # sizes
@@ -78,12 +77,16 @@ class TissueClassifier(object):
             self.ext_field[:, i] = np.exp(-.5 * maha)
             self.ext_field[:, i] *= (1. / np.sqrt(det_sigma))
 
-        print('  normalizing...')
         self.ext_field.clip(1e-300, 1e300, out=self.ext_field)
-        tmp = self.ext_field.T
-        tmp /= tmp.sum(0)
-
-        self.ppm[:] = self.ext_field.reshape(self.ppm.shape)
+        if self.beta == 0:
+            print('  ... Normalizing...')
+            tmp = self.ext_field.T
+            tmp /= tmp.sum(0)
+            self.ppm[:] = self.ext_field.reshape(self.ppm.shape)
+        else:
+            print('  ... MRF regularization')
+            self.ppm = _ve_step(self.ppm, self.ext_field, self.XYZ,
+                                self.beta, False, 0)
 
         gc.enable()
         gc.collect()
@@ -146,10 +149,10 @@ def config_mp2rage_dixon():
 # sigma = [100 * np.eye(2) for i in range(len(mu))]
 
 
-#data, aff, mu, sigma = config_mprage()
-data, aff, mu, sigma = config_mp2rage_dixon()
+data, aff, mu, sigma = config_mprage()
+#data, aff, mu, sigma = config_mp2rage_dixon()
 
-TC = TissueClassifier(data, mu, sigma)
+TC = TissueClassifier(data, mu, sigma, beta=0.2)
 TC.run()
 
 data = TC.ppm.argmax(-1)
