@@ -14,25 +14,31 @@ class TissueClassifier(object):
     def __init__(self, data, mu, sigma, beta=0):
 
         ntissues = len(mu)
+        data = data.squeeze()
         if hasattr(mu[0], '__iter__'):
             nchannels = len(mu[0])
             space_shape = data.shape[0:-1]
         else:
             nchannels = 1
-            space_shape = data.squeeze().shape
+            space_shape = data.shape
 
-        self.data = data.reshape((np.prod(space_shape), nchannels))
+        self.slices = [slice(1, s - 1) for s in space_shape]
+        XYZ = np.mgrid[self.slices]
+        XYZ = np.reshape(XYZ, (XYZ.shape[0], np.prod(XYZ.shape[1::]))).T
+        self.XYZ = np.asarray(XYZ, dtype='int', order='C')
+        data_msk = data[self.slices]
+
+        if nchannels == 1:
+            self.data = data_msk.reshape((np.prod(data_msk.shape), 1))
+        else:
+            self.data = data_msk.reshape((np.prod(data_msk.shape[0:-1]),
+                                          data_msk.shape[-1]))
         self.ppm = np.zeros(list(space_shape) + [ntissues])
         self.ext_field = np.zeros([self.data.shape[0], ntissues])
 
-        print space_shape
-
-        XYZ = np.mgrid[[slice(1, s - 1) for s in space_shape]]
-        XYZ = np.reshape(XYZ, (XYZ.shape[0], np.prod(XYZ.shape[1::]))).T
-        self.XYZ = np.asarray(XYZ, dtype='int', order='C')
-
         self.mu = np.asarray(mu).reshape((ntissues, nchannels))
-        self.sigma = np.asarray(sigma).reshape((ntissues, nchannels, nchannels))
+        self.sigma = np.asarray(sigma).reshape((ntissues,
+                                                nchannels, nchannels))
 
         self.beta = float(beta)
 
@@ -50,7 +56,8 @@ class TissueClassifier(object):
         print(' VM step...')
 
         for i in range(self.ntissues()):
-            P = self.ppm[..., i].reshape(np.prod(self.ppm.shape[0:-1]))
+            #P = self.ppm[..., i].reshape(np.prod(self.ppm.shape[0:-1]))
+            P = self.ppm[..., i][self.slices].ravel()
             Z = P.sum()
             tmp = self.data.T * P.T
             mu = tmp.sum(1) / Z
