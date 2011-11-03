@@ -138,7 +138,7 @@ def config_mprage():
     return data, aff, mu, sigma
 
 
-def config_mp2rage_dixon():
+def config_mp2rage_dixon_zobic():
     # MP2RAGE+DIXON based segmentation (two channels)
     im1 = nb.load(get_file_name('flat'))
     im2 = nb.load(get_file_name('fat'))
@@ -155,28 +155,32 @@ def config_mp2rage_dixon():
     return data, aff, mu, sigma
 
 
-def config_full_mp2rage_dixon():
+def config_mp2rage_dixon(channels='all'):
+    if channels == 'all':
+        channels = ('flat', 'fat', 'inv1', 'inv2')
     # MP2RAGE+DIXON+inversion images (4 channels)
-    im1 = nb.load(get_file_name('flat'))
-    im2 = nb.load(get_file_name('fat'))
-    im3 = nb.load(get_file_name('inv1'))
-    im4 = nb.load(get_file_name('inv2'))
-    for im in [im1, im2, im3, im4]:
+    # AIR, FAT, CSF, GM, WM
+    init_mu = {'flat': [2000, 2000, 150, 1200, 2800],
+               'fat': [0, 500, 0, 0, 0],
+               'inv1': [0, 400, 160, 50, 90],
+               'inv2': [0, 1000, 180, 350, 400]}
+    ims = []
+    mus = []
+    for c in channels:
+        im = nb.load(get_file_name(c))
+        ims += [im]
+        mus += [init_mu[c]]
         print im.get_data_dtype()
         print im.get_affine()
-    aff = im1.get_affine()
-    dat1 = im1.get_data().squeeze()
-    data = np.zeros(list(dat1.shape) + [4], dtype=dat1.dtype)
-    data[..., 0] = dat1
-    data[..., 1] = im2.get_data().squeeze()
-    data[..., 2] = im3.get_data().squeeze()
-    data[..., 3] = im4.get_data().squeeze()
-    mu = [[2000., 0., 0., 0.],
-          [2000., 500., 400., 1000.],
-          [150., 0., 160., 180.],
-          [1200., 0., 50., 350.],
-          [2800., 0., 90., 400.]]
-    sigma = [100 * np.eye(4) for i in range(len(mu))]
+
+    aff = ims[0].get_affine()
+    data0 = ims[0].get_data().squeeze()
+    data = np.zeros(list(data0.shape) + [len(channels)], dtype=data0.dtype)
+    data[..., 0] = data0
+    for i in range(1, len(channels)):
+        data[..., i] = ims[i].get_data().squeeze()
+    mu = [[m[i] for m in mus] for i in range(5)]
+    sigma = [100 * np.eye(len(channels)) for i in range(len(mu))]
     return data, aff, mu, sigma
 
 # AIR, FAT, CSF, GM, WM
@@ -186,7 +190,7 @@ def config_full_mp2rage_dixon():
 # make multichannel data
 #data, aff, mu, sigma = config_mprage()
 #data, aff, mu, sigma = config_mp2rage_dixon()
-data, aff, mu, sigma = config_full_mp2rage_dixon()
+data, aff, mu, sigma = config_mp2rage_dixon(('flat', 'fat', 'inv2'))
 
 # tissue classification
 """
