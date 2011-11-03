@@ -139,10 +139,13 @@ def config_mprage():
 
 
 def config_mp2rage_dixon():
-    # MP2RAGE+DIXON based segmentation (single channel)
+    # MP2RAGE+DIXON based segmentation (two channels)
     im1 = nb.load(get_file_name('flat'))
     im2 = nb.load(get_file_name('fat'))
     aff = im1.get_affine()
+    for im in [im1, im2]:
+        print im.get_data_dtype()
+        print im.get_affine()
     dat1 = im1.get_data().squeeze()
     data = np.zeros(list(dat1.shape) + [2], dtype=dat1.dtype)
     data[..., 0] = dat1
@@ -151,16 +154,44 @@ def config_mp2rage_dixon():
     sigma = [100 * np.eye(2) for i in range(len(mu))]
     return data, aff, mu, sigma
 
+
+def config_full_mp2rage_dixon():
+    # MP2RAGE+DIXON+inversion images (4 channels)
+    im1 = nb.load(get_file_name('flat'))
+    im2 = nb.load(get_file_name('fat'))
+    im3 = nb.load(get_file_name('inv1'))
+    im4 = nb.load(get_file_name('inv2'))
+    for im in [im1, im2, im3, im4]:
+        print im.get_data_dtype()
+        print im.get_affine()
+    aff = im1.get_affine()
+    dat1 = im1.get_data().squeeze()
+    data = np.zeros(list(dat1.shape) + [4], dtype=dat1.dtype)
+    data[..., 0] = dat1
+    data[..., 1] = im2.get_data().squeeze()
+    data[..., 2] = im3.get_data().squeeze()
+    data[..., 3] = im4.get_data().squeeze()
+    mu = [[2000., 0., 0., 0.],
+          [2000., 500., 400., 1000.],
+          [150., 0., 160., 180.],
+          [1200., 0., 50., 350.],
+          [2800., 0., 90., 400.]]
+    sigma = [100 * np.eye(4) for i in range(len(mu))]
+    return data, aff, mu, sigma
+
 # AIR, FAT, CSF, GM, WM
 # mu = [[5., 5.], [750., 750.], [90., 90.], [180., 180.], [380., 380.]]
 # sigma = [100 * np.eye(2) for i in range(len(mu))]
 
-
-data, aff, mu, sigma = config_mprage()
+# make multichannel data
+#data, aff, mu, sigma = config_mprage()
 #data, aff, mu, sigma = config_mp2rage_dixon()
+data, aff, mu, sigma = config_full_mp2rage_dixon()
 
+# tissue classification
+"""
 TC = TissueClassifier(data, mu, sigma, beta=0.2)
 TC.run()
-
 data = TC.ppm.argmax(-1)
 nb.save(nb.Nifti1Image(data, aff), 'classif.nii')
+"""
