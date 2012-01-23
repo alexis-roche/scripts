@@ -1,13 +1,16 @@
 from os.path import join
+import gc
 import numpy as np
 from scipy import sparse
 import nibabel as nb
+
+from pyamg import smoothed_aggregation_solver
+
 
 from nipy.algorithms.segmentation import (Segmentation,
                                           initialize_parameters)
 from nipy.algorithms.segmentation._segmentation import _make_edges
 
-from random_walker import random_walker_prior
 
 
 NITERS = 10
@@ -20,33 +23,57 @@ PATH = '/home/alexis/E/Data/brainweb'
 IM_ID = 'brainweb_SS'
 
 
+def mask_to_idx(mask):
+    """
+    Convert mask into array of indices
+    """
+    idx = -np.ones(mask.shape, dtype='int')
+    tmp = mask > 0
+    idx[tmp] = np.arange(tmp.sum())
+    return idx
+
+
 def make_laplacian(mask):
-    edges = _make_edges(mask.astype('uint'), NGB_SIZE)
+    edges = _make_edges(mask_to_idx(mask), NGB_SIZE)
+    n = edges.max() + 1
     neg_weights = -np.ones(edges.shape[0])
-    L = sparse.coo_matrix((neg_weights, edges.T))
-    diag = np.arange(n)
-    connect = -np.ravel(L.sum(axis=1))
-    lap = sparse.coo_matrix((np.hstack((neg_weights, connect)),
-                             (np.hstack((i_indices,diag)), np.hstack((j_indices, diag)))), 
-                            shape=(n, n))
-    return L
+    L = sparse.coo_matrix((neg_weights, edges.T), shape=(n, n))
+    diag = np.vstack((np.arange(n), np.arange(n)))
+    degrees = -np.ravel(L.sum(axis=1))
+    return sparse.coo_matrix((np.hstack((neg_weights, degrees)),
+                              np.hstack((edges.T, diag))),
+                             shape=(n, n))
 
 
-def rw_step(S):
+def random_walker(mask, prior):
     """
-    Input is a Segmentation object
+    Assume prior is given on the mask, of shape (NPTS, K)
     """
-    y = np.zeros((40, 40, 40))
-    y[10:-10, 10:-10, 10:-10] = 1
-    y += 0.7 * np.random.random((40, 40, 40))
-    p = y.max() - y.ravel()
-    q = y.ravel()
-    prior = np.array([p, q])
+    gc.enable()
 
-    print y.shape
-    print prior.shape
+    print('Assembling graph Laplacian...')
+    L = make_laplacian(mask)
+    n = L.shape[0]
+    print L.shape
+    gamma = 1.
+    L = L + sparse.coo_matrix((gamma * prior.sum(axis=1),
+                               (range(n), range(n))))
 
-    return random_walker_prior(y, prior, mode='amg')
+    print('Creating sparse solver...')
+    mls = smoothed_aggregation_solver(L.tocsr())
+    del L
+    gc.collect()
+
+    print('Loop over classes...')
+    X = []
+
+    for k in range(prior.shape[-1]):
+        print('  Doing class %d...' % k)
+        X += [mls.solve(gamma * prior[:, k])]
+
+    del mls
+    gc.collect()
+    return np.array(X.T)
 
 
 def run_rw(S):
@@ -83,15 +110,11 @@ S = Segmentation(img.get_data(), mask=mask, mu=mu, sigma=std ** 2,
 #run_vem(S)
 #save_map_label(S)
 
+# fake prior
+prior = np.random.random((S.data.shape[0], 3))
+X = random_walker(mask, prior)
 
-#L = make_laplacian(mask)
 
-edges = _make_edges(mask.astype('uint'), NGB_SIZE)
-n = edges.max() + 1
-neg_weights = -np.ones(edges.shape[0])
-L = sparse.coo_matrix((neg_weights, edges.T), shape=(n, n))
-diag = np.vstack((np.arange(n), np.arange(n)))
-connect = -np.ravel(L.sum(axis=1))
-lap = sparse.coo_matrix((np.hstack((neg_weights, connect)),
-                         np.hstack((edges.T, diag))),
-                        shape=(n, n))
+
+
+
