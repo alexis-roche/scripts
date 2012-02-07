@@ -6,20 +6,19 @@ import nibabel as nb
 
 from pyamg import smoothed_aggregation_solver
 
-
 from nipy.algorithms.segmentation import (Segmentation,
                                           initialize_parameters)
 from nipy.algorithms.segmentation._segmentation import _make_edges
 
 
-
 NITERS = 10
 NGB_SIZE = 6
-BETA = 1.0
+BETA = 0.5
 LABELS = ('CSF', 'GM', 'WM')
 USE_VEM = True
 
 PATH = '/home/alexis/E/Data/brainweb'
+RESPATH = '/home/alexis/E/Data/brainweb-results'
 IM_ID = 'brainweb_SS'
 
 
@@ -45,7 +44,19 @@ def make_laplacian(mask):
                              shape=(n, n))
 
 
-def random_walker(mask, prior):
+def config_random_walker(field, beta):
+    """
+    # Xmas 2011 strategy
+    field = np.log(field)
+    field = (field.T - field.min(1)).T
+    """
+    # Normalize likelihood -> pi distribution
+    field = (field.T / field.sum(1)).T
+    ###field = ((field.T) * (1 / field).mean(1)).T
+    return field, 2. / beta
+
+
+def random_walker(mask, prior, gamma):
     """
     Assume prior is given on the mask, of shape (NPTS, K)
     """
@@ -55,7 +66,6 @@ def random_walker(mask, prior):
     L = make_laplacian(mask)
     n = L.shape[0]
     print L.shape
-    gamma = 1.
     L = L + sparse.coo_matrix((gamma * prior.sum(axis=1),
                                (range(n), range(n))))
 
@@ -73,24 +83,48 @@ def random_walker(mask, prior):
 
     del mls
     gc.collect()
-    return np.array(X.T)
+    return np.array(X).T
 
 
-def run_rw(S):
-    return
+def run_rw(img, mask):
+    mu, std, _ = initialize_parameters(img.get_data()[mask], 3)
+    S = Segmentation(img.get_data(), mask=mask, mu=mu, sigma=std ** 2,
+                 ngb_size=NGB_SIZE, beta=BETA)
+    prior, gamma = config_random_walker(S.ext_field(), BETA)
+    q = random_walker(mask, prior, gamma)
+    tmp = np.zeros(S.ppm.shape)
+    tmp[mask] = q
+    return tmp
 
 
-def run_vem(S):
-    S.run(niters=NITERS)
+"""def eval_ngb_correction(S):
+    f = S.ext_field()
+    fc = S.ppm[S.mask]
+    g = np.log(fc / f)
+"""
 
 
-def save_map_label(S):
+def run_vem(img, mask):
+    mu, std, _ = initialize_parameters(img.get_data()[mask], 3)
+    S = Segmentation(img.get_data(), mask=mask, mu=mu, sigma=std ** 2,
+                 ngb_size=NGB_SIZE, beta=BETA)
+    for it in range(NITERS):
+        S.ve_step()
+    return S.ppm
     """
-    Save the MAP classification
+    return nb.Nifti1Image(S.maximum_a_posteriori(), img.get_affine())
     """
-    x = S.maximum_a_posteriori()
-    map_img = nb.Nifti1Image(x, img.get_affine())
-    nb.save(map_img, join(PATH, 'MAP_' + IM_ID + '.nii'))
+
+
+def save_ppm(img, ppm, stamp=''):
+    for k in range(len(LABELS)):
+        im = nb.Nifti1Image(ppm[..., k], img.get_affine())
+        nb.save(im, join(RESPATH, LABELS[k] + '_' + stamp + '_' + IM_ID + '.nii'))
+
+    label_map = np.zeros(mask.shape, dtype='uint8')
+    label_map[mask] = np.argmax(ppm[mask], 1) + 1
+    im = nb.Nifti1Image(label_map, img.get_affine())
+    nb.save(im, join(RESPATH, 'CLASSIF_' + stamp + '_' + IM_ID + '.nii'))
 
 
 # Input image
@@ -99,22 +133,27 @@ img = nb.load(join(PATH, IM_ID + '.nii'))
 # Input mask
 mask = img.get_data() > 0
 
-# Initialize intensity parameters by moment matching
+# Segmentation algorithms
+ppm = run_vem(img, mask)
+save_ppm(img, ppm)
+
+ppm2 = run_rw(img, mask)
+save_ppm(img, ppm2, 'RW')
+
+
+"""
 mu, std, _ = initialize_parameters(img.get_data()[mask], 3)
 
-# Segmentation algorithm
 S = Segmentation(img.get_data(), mask=mask, mu=mu, sigma=std ** 2,
                  ngb_size=NGB_SIZE, beta=BETA)
+prior, gamma = config_random_walker(S.ext_field(), BETA)
 
+print('Assembling graph Laplacian...')
+L = make_laplacian(mask)
+n = L.shape[0]
+print L.shape
+D = sparse.coo_matrix((gamma * prior.sum(axis=1),
+                       (range(n), range(n))))
 
-#run_vem(S)
-#save_map_label(S)
-
-# fake prior
-prior = np.random.random((S.data.shape[0], 3))
-X = random_walker(mask, prior)
-
-
-
-
-
+#L = L + D
+"""
