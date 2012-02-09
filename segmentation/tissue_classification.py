@@ -44,16 +44,20 @@ def make_laplacian(mask):
                              shape=(n, n))
 
 
+def get_Z(pi):
+    x = np.sort(pi, 1)
+    pi_max = x[:, -1]
+    pi_min = x[:, -2]
+    num = np.log(pi_max) - np.log(pi_min)
+    den = pi_max - pi_min
+    return num / den
+
+
 def config_random_walker(field, beta):
-    """
-    # Xmas 2011 strategy
-    field = np.log(field)
-    field = (field.T - field.min(1)).T
-    """
-    # Normalize likelihood -> pi distribution
-    field = (field.T / field.sum(1)).T
-    ###field = ((field.T) * (1 / field).mean(1)).T
-    return field, 2. / beta
+    # normalize to a distribution
+    pi = (field.T / field.sum(1)).T
+    Z = get_Z(pi)
+    return (pi.T * Z).T, 1. / beta
 
 
 def random_walker(mask, prior, gamma):
@@ -92,16 +96,8 @@ def run_rw(img, mask):
                  ngb_size=NGB_SIZE, beta=BETA)
     prior, gamma = config_random_walker(S.ext_field(), BETA)
     q = random_walker(mask, prior, gamma)
-    tmp = np.zeros(S.ppm.shape)
-    tmp[mask] = q
-    return tmp
-
-
-"""def eval_ngb_correction(S):
-    f = S.ext_field()
-    fc = S.ppm[S.mask]
-    g = np.log(fc / f)
-"""
+    S.ppm[mask] = q
+    return S
 
 
 def run_vem(img, mask):
@@ -110,21 +106,56 @@ def run_vem(img, mask):
                  ngb_size=NGB_SIZE, beta=BETA)
     for it in range(NITERS):
         S.ve_step()
-    return S.ppm
-    """
-    return nb.Nifti1Image(S.maximum_a_posteriori(), img.get_affine())
-    """
+    return S
 
 
 def save_ppm(img, ppm, stamp=''):
     for k in range(len(LABELS)):
         im = nb.Nifti1Image(ppm[..., k], img.get_affine())
         nb.save(im, join(RESPATH, LABELS[k] + '_' + stamp + '_' + IM_ID + '.nii'))
-
     label_map = np.zeros(mask.shape, dtype='uint8')
     label_map[mask] = np.argmax(ppm[mask], 1) + 1
     im = nb.Nifti1Image(label_map, img.get_affine())
     nb.save(im, join(RESPATH, 'CLASSIF_' + stamp + '_' + IM_ID + '.nii'))
+
+
+def _fuzzy_dice(gpm, ppm, mask):
+    dices = np.zeros(3)
+    for k in range(3):
+        pk = gpm[k][mask]
+        qk = ppm[mask][:, k]
+        PQ = np.sum(np.sqrt(np.maximum(pk * qk, 0)))
+        P = np.sum(pk)
+        Q = np.sum(qk)
+        dices[k] = 2 * PQ / float(P + Q)
+    return dices
+
+
+def _dice(gpm, ppm, mask):
+    dices = np.zeros(3)
+    gpm = np.rollaxis(np.array(gpm), 0, 4)[mask]
+    ppm = ppm[mask]
+    sg = gpm.argmax(1)
+    s = ppm.argmax(1)
+    for k in range(3):
+        pk = (sg == k)
+        qk = (s == k)
+        PQ = np.sum(pk * qk)
+        P = np.sum(pk)
+        Q = np.sum(qk)
+        dices[k] = 2 * PQ / float(P + Q)
+    return dices
+
+
+def dice(ppm, mask):
+    """
+    Dice and fuzzy dice indices.
+    """
+    gpm = [nb.load(join(PATH, f)).get_data() for f in \
+               ('phantom_1.0mm_normal_csf_.nii',
+                'phantom_1.0mm_normal_gry_.nii',
+                'phantom_1.0mm_normal_wht_.nii')]
+    return _dice(gpm, ppm, mask), _fuzzy_dice(gpm, ppm, mask)
 
 
 # Input image
@@ -134,11 +165,15 @@ img = nb.load(join(PATH, IM_ID + '.nii'))
 mask = img.get_data() > 0
 
 # Segmentation algorithms
-ppm = run_vem(img, mask)
-save_ppm(img, ppm)
+S = run_vem(img, mask)
+save_ppm(img, S.ppm)
+print S.free_energy()
+print S.map_energy()
 
-ppm2 = run_rw(img, mask)
-save_ppm(img, ppm2, 'RW')
+S2 = run_rw(img, mask)
+save_ppm(img, S2.ppm, 'RW')
+print S2.free_energy()
+print S2.map_energy()
 
 
 """
