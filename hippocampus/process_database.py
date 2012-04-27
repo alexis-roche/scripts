@@ -12,7 +12,9 @@ from nipy.algorithms.segmentation import brain_segmentation
 from nipy.algorithms.registration import HistogramRegistration, resample
 
 
-DATADIR = '/home/alexis/E/Data/adni_hippocampus'
+# DATADIR = '/home/alexis/E/Data/adni_hippocampus'
+DATADIR = '/home/alexis/D/Alexis/adni_hippocampus'
+WIP_VERSION = 'WIP542E_v9'
 
 # First simulation was conducted on
 TEMPLATE = 'S10009'
@@ -23,11 +25,12 @@ TEMPLATE = 'S10009'
 FAKE_VOLS = (-1, -1, -1)
 
 USHORT_MAX = 2 ** 16 - 1
+UCHAR_MAX = 2 ** 8 - 1
 HIPPO_MASK_MAX = 5376
 
-OUTPUT = 'uncertainty.npz'
-START = 10
-BETA = 0.2
+OUTPUT = 'hippowip_4k_smartconversion.npz'
+START = 0
+BETA = 0.2  # BETA = 0.2
 FREEZE_PROP = True
 VEM_ITERS = 25  # set to zero to use pre-computed classifications
 SCHEME = 'mf'
@@ -55,7 +58,7 @@ def get_subjects():
 
 
 def get_image_files(subject):
-    files = glob(join(DATADIR, '*'+subject+'*.nii'))
+    files = glob(join(DATADIR, 'ADNI*'+subject+'*.nii'))
     mask = True
     if not len(files) == 1:
         print('OOOPS: %d MR images found' % len(files))
@@ -72,8 +75,9 @@ def get_image_files(subject):
     if not len(files) == 1:
         print('OOOPS: %d hippocampal images found' % len(files))
         return None
-    #print f_data
-    #print files[0]
+    print('Image files for %s:' % subject)
+    print f_data
+    print files[0]
     return f_data, files[0]
 
 
@@ -245,7 +249,7 @@ def register_hippocampus_masks(subjects, examples=None):
     # Load and write template data 
     fix_im, fix_msk = get_image_files(TEMPLATE)
     fix_im = load(fix_im)
-    fix_msk =reorient_mask(load(fix_msk), fix_im)
+    fix_msk = reorient_mask(load(fix_msk), fix_im)
     save(fix_im, 'fixed.nii')
     save(fix_msk, mask_file(TEMPLATE))
 
@@ -336,6 +340,7 @@ def get_tiv_image(subject):
         print('WARNING: subject %s has %d TIV images' % (s, len(tmp)))
         if len(tmp)==0: 
             raise ValueError('No TIV image found')
+    print('TIV image: %s' % tmp[0])
     return tmp[0]
 
 
@@ -370,6 +375,10 @@ def perform_tissue_classification(tiv, vem_iters, beta, scheme='mf',
     return Nifti1Image(ppm_img_.get_data()[..., 1], tiv.get_affine()), \
         Nifti1Image(ppm_img_.get_data()[..., 0], tiv.get_affine()), \
         count_tiv
+
+
+def from_ushort(dat):
+    return dat.astype('double') / USHORT_MAX
 
 
 def compound_proba(hippo_prior, gray_ppm, normalize=False):
@@ -433,16 +442,16 @@ def estimate_hippocampus(subject, vem_iters=VEM_ITERS, beta=BETA, register=True)
         gray_ppm = reorient_tiv(load(f_gray_ppm), im)
         save(gray_ppm, 'fixed_gray_ppm.nii')
         count_tiv = len(np.where(tiv.get_data() > 0)[0])
-        count_tiv_gm = np.sum(gray_ppm.get_data())
+        count_gm = np.sum(gray_ppm.get_data())
     else:
         gray_ppm, csf_ppm, count_tiv = perform_tissue_classification(
             tiv, vem_iters, beta,
             scheme=SCHEME, noise=NOISE, labels=LABELS,
             mixmat=MIXMAT, freeze_prop=FREEZE_PROP)
-        count_tiv_gm = np.sum(gray_ppm.get_data())
-        count_tiv_csf = np.sum(csf_ppm.get_data())
-        sum_squares_tiv_gm = np.sum(gray_ppm.get_data() ** 2)
-        sum_squares_tiv_csf = np.sum(csf_ppm.get_data() ** 2)
+        count_gm = np.sum(gray_ppm.get_data())
+        count_csf = np.sum(csf_ppm.get_data())
+        s2_gm = np.sum(gray_ppm.get_data() ** 2)
+        s2_csf = np.sum(csf_ppm.get_data() ** 2)
 
     # compound hippocampus probabilities
     hippo_prior = load('r_hippocampus_prior.nii')
@@ -450,22 +459,24 @@ def estimate_hippocampus(subject, vem_iters=VEM_ITERS, beta=BETA, register=True)
     save(hippo_ppm, 'r_hippocampus_ppm.nii')
 
     # estimate hippocampus volume
-    jacobian = np.abs(np.linalg.det(hippo_ppm.get_affine()))
-    count = np.sum(hippo_ppm.get_data())
-    sum_squares = np.sum(hippo_ppm.get_data() ** 2)
+    jacobian = np.abs(np.linalg.det(hippo_prior.get_affine()))
+    count_hippo = np.sum(from_ushort(hippo_prior.get_data()))
+    count_hippo_gm = np.sum(hippo_ppm.get_data())
+    s2_hippo = np.sum(from_ushort(hippo_prior.get_data()) ** 2)
+    s2_hippo_gm = np.sum(hippo_ppm.get_data() ** 2)
 
     # compute Dice coefficient
     hippo_msk = np.where(msk.get_data() > 0)
-    count_true = float(len(hippo_msk[0]))
-    count_inter = np.sum(hippo_ppm.get_data()[hippo_msk])
-    dice_coeff = 2 * count_inter / (count + count_true)
-    count_true_pv = np.sum(gray_ppm.get_data()[hippo_msk])
+    count_true_hippo = float(len(hippo_msk[0]))
+    count_inter = np.sum(from_ushort(hippo_prior.get_data())[hippo_msk])
+    dice_coeff = 2 * count_inter / (count_hippo + count_true_hippo)
+    count_true_hippo_gm = np.sum(gray_ppm.get_data()[hippo_msk])
 
     # CSF
     hippo_csf_ppm = compound_proba(hippo_prior, csf_ppm)
     save(hippo_csf_ppm, 'r_hippocampus_csf_ppm.nii')
-    count_csf = np.sum(hippo_csf_ppm.get_data())
-    sum_squares_csf = np.sum(hippo_csf_ppm.get_data() ** 2)
+    count_hippo_csf = np.sum(hippo_csf_ppm.get_data())
+    s2_hippo_csf = np.sum(hippo_csf_ppm.get_data() ** 2)
 
     # hack
     """
@@ -473,38 +484,122 @@ def estimate_hippocampus(subject, vem_iters=VEM_ITERS, beta=BETA, register=True)
     dat[hippo_msk] = gray_ppm.get_data()[hippo_msk]
     save(Nifti1Image(dat, gray_ppm.get_affine()), 'compound.nii')
     """
-    def relative_std(count, sum_squares):
-        return np.sqrt(np.maximum(count - sum_squares, 0.0))\
+    def relative_std(count, s2):
+        return np.sqrt(np.maximum(count - s2, 0.0))\
             / np.maximum(count, 1e-20)
 
     # output
     return {'tiv': count_tiv * jacobian,
-            'gm': count_tiv_gm * jacobian,
-            'csf': count_tiv_csf * jacobian,
-            'pvol_true': count_true_pv * jacobian,
-            'vol_true': count_true * jacobian,
-            'pvol': count * jacobian,
-            'pvol_csf': count_csf * jacobian,
-            'gm_csf': count / max(float(count_csf), 1e-100),
+            'gm': count_gm * jacobian,
+            'csf': count_csf * jacobian,
+            'hippo': count_hippo * jacobian,
+            'hippo_gm': count_hippo_gm * jacobian,
+            'hippo_csf': count_hippo_csf * jacobian,
+            'true_hippo_gm': count_true_hippo_gm * jacobian,
+            'true_hippo': count_true_hippo * jacobian,
             'dice': dice_coeff,
             'jacobian': jacobian,
-            'gm_rel_std': relative_std(count_tiv_gm, sum_squares_tiv_gm),
-            'csf_rel_std': relative_std(count_tiv_csf, sum_squares_tiv_csf),
-            'pvol_rel_std': relative_std(count, sum_squares),
-            'pvol_csf_rel_std': relative_std(count_csf, sum_squares_csf)}
+            'gm_rstd': relative_std(count_gm, s2_gm),
+            'csf_rstd': relative_std(count_csf, s2_csf),
+            'hippo_rstd': relative_std(count_hippo, s2_hippo),
+            'hippo_gm_rstd': relative_std(count_hippo_gm, s2_hippo_gm),
+            'hippo_csf_rstd': relative_std(count_hippo_csf, s2_hippo_csf)}
 
+
+def estimate_hippocampus_wip(subject, vem_iters=VEM_ITERS, beta=BETA):
+    orig_fimg, orig_fmsk = get_image_files(subject)
+
+    path = '/home/alexis/D/Alexis/hippocampus'
+    fimg = join(path, 'mprage.nii')
+    img = load(orig_fimg)
+    save(img, fimg)
+    msk = reorient_mask(load(orig_fmsk), img)
+    save(msk, join(path, 'schuff_mask.nii'))
+    jacobian = np.abs(np.linalg.det(img.get_affine()))
+
+    system('WIP542E -i ' + fimg + ' --SaveHipMask 1')
+
+    tiv = load(join(path, 'tiv_' + WIP_VERSION + '_mprage.nii'))
+    count_tiv = len(np.where(tiv.get_data() > 0)[0])
+    im_gm = load(join(path, 'gm_' + WIP_VERSION + '_mprage.nii'))
+    gm = im_gm.get_data().astype('double') / 1000.
+    count_gm = np.sum(gm)
+    s2_gm = np.sum(gm ** 2)
+    im_csf = load(join(path, 'csf_' + WIP_VERSION + '_mprage.nii'))
+    csf = im_csf.get_data().astype('double') / 1000.
+    count_csf = np.sum(csf)
+    s2_csf = np.sum(csf ** 2)
+
+    """
+    im_r_hippo_prior = load(join(path, 'priorhip_' + WIP_VERSION + '_mprage.nii'))
+    hippo = im_r_hippo_prior.get_data().astype('double') / UCHAR_MAX
+    """
+
+    # hack to bypass current WIP resampling bug of the hippocampus
+    # prob map
+    system('R+NR template.nii ' + fimg + ' hippocampus_prior.nii '
+           + join(path, 'r_hippocampus_prior.nii') + ' ' 
+           + join(path, 'r_template.nii'))
+    im_r_hippo_prior = load(join(path, 'r_hippocampus_prior.nii'))
+    hippo = im_r_hippo_prior.get_data().astype('double') / USHORT_MAX
+
+    count_hippo = np.sum(hippo)
+    count_hippo_gm = np.sum(hippo * gm)
+    s2_hippo = np.sum(hippo ** 2)
+    s2_hippo_gm = np.sum((hippo * gm) ** 2)
+
+    # compute Dice coefficient
+    hippo_msk = np.where(msk.get_data() > 0)
+    count_true_hippo = float(len(hippo_msk[0]))
+    count_inter = np.sum(hippo[hippo_msk])
+    dice_coeff = 2 * count_inter / (count_hippo + count_true_hippo)
+    count_true_hippo_gm = np.sum(gm[hippo_msk])
+
+    # CSF
+    count_hippo_csf = np.sum(hippo * csf)
+    s2_hippo_csf = np.sum((hippo * csf) ** 2)
+
+    # hack
+    def relative_std(count, s2):
+        return np.sqrt(np.maximum(count - s2, 0.0))\
+            / np.maximum(count, 1e-20)
+
+    # output
+    return {'tiv': count_tiv * jacobian,
+            'gm': count_gm * jacobian,
+            'csf': count_csf * jacobian,
+            'hippo': count_hippo * jacobian,
+            'hippo_gm': count_hippo_gm * jacobian,
+            'hippo_csf': count_hippo_csf * jacobian,
+            'true_hippo_gm': count_true_hippo_gm * jacobian,
+            'true_hippo': count_true_hippo * jacobian,
+            'dice': dice_coeff,
+            'jacobian': jacobian,
+            'gm_rstd': relative_std(count_gm, s2_gm),
+            'csf_rstd': relative_std(count_csf, s2_csf),
+            'hippo_rstd': relative_std(count_hippo, s2_hippo),
+            'hippo_gm_rstd': relative_std(count_hippo_gm, s2_hippo_gm),
+            'hippo_csf_rstd': relative_std(count_hippo_csf, s2_hippo_csf)}
+
+         
 
 """
 subjects = get_subjects()
 subjects = check_data(subjects)
 make_chuv_atlas(subjects)
 """
+
+
+
 f = np.load('hippocampus_schuff.npz')
 
 
 # Test
-#dico = estimate_hippocampus('S16321')  # register=False
-
+# dico = estimate_hippocampus('S16321')  # register=False
+# Black list: S30418, S32678, S13160
+# print estimate_hippocampus('S13160')
+# print estimate_hippocampus_wip('S16321')
+# print estimate_hippocampus_wip('S23101')
 
 tmp = np.array(f['patho'])
 idx = np.where((tmp==' Normal')+(tmp==' AD')) 
@@ -513,6 +608,31 @@ _patho = f['patho'][idx]
 _age = f['age'][idx]
 _sex = f['sex'][idx]
 
+# Check data
+files = []
+patho = []
+age = []
+txt_files = open('files.txt', 'w')
+txt_patho = open('patho.txt', 'w')
+txt_age = open('age.txt', 'w')
+for s, p, a in zip(_subjects, _patho, _age):
+    f = get_image_files(s)
+    if not f == None:
+        _, f = split(f[0])
+        # f = '\\lifmetpc34\Alexis\adni_hippocampus\' + f
+        f = '\\\\lifmetpc34\\Alexis\\adni_hippocampus\\' + f
+        files.append(f)
+        patho.append(p)
+        age.append(a)
+        txt_files.write(f + '\n')
+        txt_patho.write(p.strip() + '\n')
+        txt_age.write(str(a) + '\n')
+
+txt_files.close()
+txt_patho.close()
+txt_age.close()
+
+"""
 if START == 0:
     subjects = []
     info = []
@@ -527,7 +647,7 @@ for i in range(START, len(_subjects)):
     s = _subjects[i]
     p = _patho[i]
     try:
-        m = estimate_hippocampus(s)
+        m = estimate_hippocampus_wip(s)
         measures.append(m)
         subjects.append(s)
         this_info = {'patho': _patho[i], 'age': _age[i], 'sex': _sex[i]}
@@ -539,3 +659,7 @@ for i in range(START, len(_subjects)):
              subjects=subjects,
              info=info,
              measures=measures)
+    completed = 100 * (1. + i) / len(_subjects)
+    print ('%f per cent complete.' % completed)
+
+"""
