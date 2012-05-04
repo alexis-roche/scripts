@@ -2,7 +2,8 @@ import numpy as np
 import scipy.ndimage as nd
 import scipy.optimize as op
 import nibabel as nb
-import pylab as pl
+from glob import glob
+from os.path import split, splitext, join
 
 
 def fwhm_to_sigma(fwhm, voxsize):
@@ -15,45 +16,80 @@ def fwhm_to_sigma(fwhm, voxsize):
     return sigma_mm / voxsize
 
 
-def get_clean_data(im):
-    x = im.get_data().squeeze()
-    msk = np.isnan(x)
-    x[msk] = np.mean(x[True - msk])
-    return x
+def blur(x, msk, sigma):
+    """
+    x should be zero in the mask
+    """
+    gx = nd.gaussian_filter(x, sigma)
+    norma = 1 - nd.gaussian_filter(msk.astype('float'), sigma)
+    gx[True - msk] /= norma[True - msk]
+    gx[msk] = 0.
+    return gx
 
 
-def unblur(y, sigma):
-
+def unblur(y, msk, sigma):
+    """
+    y should be zero in the mask
+    """
     cache = {'xf': None, 'res': None}
-    shape = y.shape
+    nvoxels = np.sum(1 - msk)
+    print nvoxels
+    x = np.array(y)
+    dom = True - msk
 
     def residual(xf):
         if not xf is cache['xf']:
-            x = xf.reshape(shape)
-            res = nd.gaussian_filter(x, sigma) - y
-            cache['res'] = res.ravel()
+            x[dom] = xf
+            cache['res'] = blur(x, msk, sigma)[dom] - y[dom]
             cache['xf'] = xf
         return cache['res']
 
+    def callback(xf):
+        print error(xf)
+
     def error(xf):
-        return np.sum(residual(xf) ** 2)
+        return .5 * np.sum(residual(xf) ** 2)
 
-    def grad_error(xf):
-        return 2 * residual(xf)
+    xf = op.fmin_cg(error, x[dom], fprime=residual, maxiter=20,
+                    callback=callback)
+    x[dom] = xf
+    return x
 
-    x = op.fmin_cg(error, y.reshape(shape), fprime=grad_error)
-    return x.reshape(shape)
+
+def unblur_image(img, sigma):
+    y = im.get_data().squeeze()
+    msk = np.isnan(y)
+    y[msk] = 0
+    x = unblur(y, msk, sigma)
+    return nb.Nifti1Image(x, im.get_affine())
 
 
-im = nb.load('/home/alexis/E/Data/fiac_group/group_DSp_minus_SSp_for_DSt/DSp_minus_SSp_for_DSt_fiac_00.img')
+def unblur_var_image(img, sigma):
+    x = np.zeros((51, 51, 51))
+    x[25, 25, 25] = 1
+    y = nd.gaussian_filter(x, sigma)
+    K = np.sum(y ** 2) / np.sum(y)
+    y = im.get_data().squeeze()
+    msk = np.isnan(y)
+    y[msk] = 0
+    x = unblur(y, msk, sigma / np.sqrt(2)) / K
+    return nb.Nifti1Image(x, im.get_affine())
 
-y = get_clean_data(im)
+
+all_files = (glob('/home/alexis/D/Alexis/fiac_group/group*/*.img'),
+             glob('/home/alexis/D/Alexis/fiac_group/variance*/*.img'))
+unblur_fns = (unblur_image, unblur_var_image)
 sigma = fwhm_to_sigma(5, 3)
 
-x = unblur(y, sigma)
+for files, unblur_fn in zip(all_files, unblur_fns):
+    print len(files)
+    for f in files:
+        print f
+        path, fname = split(f)
+        fname, _ = splitext(fname)
+        im = nb.load(f)
+        nb.save(im, join(path, fname + '.nii'))
+        uim = unblur_fn(im, sigma)
+        nb.save(uim, join(path, 'unblur_' + fname + '.nii'))
+        print('Done.')
 
-pl.figure()
-pl.imshow(y[:,:,30])
-
-pl.figure()
-pl.imshow(x[:,:,30])
