@@ -57,11 +57,12 @@ def unblur(y, msk, sigma):
 
 
 def unblur_image(img, sigma):
-    y = im.get_data().squeeze()
+    y = img.get_data().squeeze()
     msk = np.isnan(y)
     y[msk] = 0
     x = unblur(y, msk, sigma)
-    return nb.Nifti1Image(x, im.get_affine())
+    x[msk] = np.nan
+    return nb.Nifti1Image(x, img.get_affine())
 
 
 def unblur_var_image(img, sigma):
@@ -69,27 +70,29 @@ def unblur_var_image(img, sigma):
     x[25, 25, 25] = 1
     y = nd.gaussian_filter(x, sigma)
     K = np.sum(y ** 2) / np.sum(y)
-    y = im.get_data().squeeze()
+    y = img.get_data().squeeze()
     msk = np.isnan(y)
     y[msk] = 0
     x = unblur(y, msk, sigma / np.sqrt(2)) / K
-    return nb.Nifti1Image(x, im.get_affine())
+    x[True - msk] /= 382
+    x[msk] = np.nan
+    return nb.Nifti1Image(x, img.get_affine())
 
 
-all_files = (glob('/home/alexis/D/Alexis/fiac_group/group*/*.img'),
-             glob('/home/alexis/D/Alexis/fiac_group/variance*/*.img'))
-unblur_fns = (unblur_image, unblur_var_image)
+path = '/home/alexis/D/Alexis/fiac_group'
+files = glob(join(path, 'group*/*.nii'))
 sigma = fwhm_to_sigma(5, 3)
 
-for files, unblur_fn in zip(all_files, unblur_fns):
-    print len(files)
-    for f in files:
-        print f
-        path, fname = split(f)
-        fname, _ = splitext(fname)
-        im = nb.load(f)
-        nb.save(im, join(path, fname + '.nii'))
-        uim = unblur_fn(im, sigma)
-        nb.save(uim, join(path, 'unblur_' + fname + '.nii'))
-        print('Done.')
+for f in files:
+    con = (split(split(f)[0])[1]).lstrip('group_')
+    num = (splitext(split(f)[1])[0]).lstrip(con + '_fiac_')
+    print con, num
+    print('Unblur contrast image...')
+    im = unblur_image(nb.load(f), sigma)
+    nb.save(im, join(path, con, 'fiac' + num + '.nii'))
+    print('Unblur variance image...')
+    fv = join(path, 'variance_' + con, 'var_fiac' + num + '.nii')
+    im = unblur_var_image(nb.load(fv), sigma)
+    nb.save(im, join(path, con, 'var_fiac' + num + '.nii'))
+    print('Done.')
 
