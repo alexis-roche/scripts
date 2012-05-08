@@ -27,7 +27,7 @@ def blur(x, msk, sigma):
     return gx
 
 
-def unblur(y, msk, sigma):
+def unblur(y, msk, sigma, maxiter=20):
     """
     y should be zero in the mask
     """
@@ -50,8 +50,8 @@ def unblur(y, msk, sigma):
     def error(xf):
         return .5 * np.sum(residual(xf) ** 2)
 
-    xf = op.fmin_cg(error, x[dom], fprime=residual, maxiter=20,
-                    callback=callback)
+    xf = op.fmin_cg(error, x[dom], fprime=residual, 
+                    maxiter=maxiter, callback=callback)
     x[dom] = xf
     return x
 
@@ -70,11 +70,14 @@ def unblur_var_image(img, sigma):
     x[25, 25, 25] = 1
     y = nd.gaussian_filter(x, sigma)
     K = np.sum(y ** 2) / np.sum(y)
+    print K
     y = img.get_data().squeeze()
     msk = np.isnan(y)
     y[msk] = 0
-    x = unblur(y, msk, sigma / np.sqrt(2)) / K
-    x[True - msk] /= 382
+    x = unblur(y, msk, sigma / np.sqrt(2), maxiter=50)
+    x[True - msk] /= (K * 382)
+    x[True - msk] = np.maximum(x[True - msk], 0)
+    print('Minimum of var image: %f' % np.min(x[True - msk]))
     x[msk] = np.nan
     return nb.Nifti1Image(x, img.get_affine())
 
@@ -95,4 +98,3 @@ for f in files:
     im = unblur_var_image(nb.load(fv), sigma)
     nb.save(im, join(path, con, 'var_fiac' + num + '.nii'))
     print('Done.')
-
